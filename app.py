@@ -10,6 +10,13 @@ st.title("🏀 Live Fantasy Basketball AI Assistant")
 LEAGUE_ID = "1346846297000267776"
 USER_ID = "1412647306305527808"
 
+# List of models to try in order (Fallback list)
+FALLBACK_MODELS = [
+    "gemini-3.8-flash",
+    "gemini-1.5-flash",
+    "gemini-flash"
+]
+
 # Retrieve API key automatically from Streamlit secrets
 api_key = st.secrets.get("GEMINI_API_KEY", None)
 
@@ -142,44 +149,49 @@ if user_prompt := st.chat_input("Ask about starters, trades, or who to pick up..
     else:
         with st.chat_message("assistant"):
             with st.spinner("Analyzing league context..."):
-                try:
-                    # Re-fetch live data at query time
-                    u_team, opp_team, free_agents, week = fetch_league_data()
-                    
-                    genai.configure(api_key=api_key)
-                    
-                    # Stable model endpoint
-                    model = genai.GenerativeModel("gemini-2.0-flash")
-                    
-                    system_context = f"""
-                    You are a Fantasy Basketball expert assistant with real-time access to the user's Sleeper league data.
-                    
-                    Current League Week: {week}
-                    Scoring Settings: PTS = 0.5, REB = 1, AST = 1, STL = 2, BLK = 2, 3PM = 1, TO = -1, DD = 1, TD = 2.
-                    
-                    --- USER'S TEAM ---
-                    Starters: {', '.join(u_team['starters'])}
-                    Bench: {', '.join(u_team['bench'])}
-                    
-                    --- OPPONENT'S TEAM ---
-                    Starters: {', '.join(opp_team['starters'])}
-                    Bench: {', '.join(opp_team['bench'])}
-                    
-                    --- TOP TRENDING AVAILABLE FREE AGENTS ---
-                    {', '.join(free_agents)}
-                    
-                    Provide specific, strategic, and concise fantasy basketball advice optimized for these points league settings.
-                    """
-                    
-                    conversation = system_context + "\n\nConversation History:\n"
-                    for msg in st.session_state.messages:
-                        conversation += f"{msg['role'].capitalize()}: {msg['content']}\n"
-                    
-                    response = model.generate_content(conversation)
-                    bot_reply = response.text
-                    
-                    st.write(bot_reply)
-                    st.session_state.messages.append({"role": "assistant", "content": bot_reply})
-                    
-                except Exception as e:
-                    st.error(f"Error generating advice: {e}")
+                u_team, opp_team, free_agents, week = fetch_league_data()
+                genai.configure(api_key=api_key)
+                
+                system_context = f"""
+                You are a Fantasy Basketball expert assistant with real-time access to the user's Sleeper league data.
+                
+                Current League Week: {week}
+                Scoring Settings: PTS = 0.5, REB = 1, AST = 1, STL = 2, BLK = 2, 3PM = 1, TO = -1, DD = 1, TD = 2.
+                
+                --- USER'S TEAM ---
+                Starters: {', '.join(u_team['starters'])}
+                Bench: {', '.join(u_team['bench'])}
+                
+                --- OPPONENT'S TEAM ---
+                Starters: {', '.join(opp_team['starters'])}
+                Bench: {', '.join(opp_team['bench'])}
+                
+                --- TOP TRENDING AVAILABLE FREE AGENTS ---
+                {', '.join(free_agents)}
+                
+                Provide specific, strategic, and concise fantasy basketball advice optimized for these points league settings.
+                """
+                
+                conversation = system_context + "\n\nConversation History:\n"
+                for msg in st.session_state.messages:
+                    conversation += f"{msg['role'].capitalize()}: {msg['content']}\n"
+
+                # FALLBACK LOOP: Try each model until one works
+                response_text = None
+                last_error = None
+
+                for model_name in FALLBACK_MODELS:
+                    try:
+                        model = genai.GenerativeModel(model_name)
+                        response = model.generate_content(conversation)
+                        response_text = response.text
+                        break  # Successfully generated, exit loop
+                    except Exception as e:
+                        last_error = e
+                        continue  # Try the next model in FALLBACK_MODELS
+
+                if response_text:
+                    st.write(response_text)
+                    st.session_state.messages.append({"role": "assistant", "content": response_text})
+                else:
+                    st.error(f"All model attempts failed. Last error: {last_error}")
