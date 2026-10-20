@@ -3,8 +3,7 @@ import requests
 import google.generativeai as genai
 
 # Page Configuration
-st.set_page_config(page_title="League AI Coach", page_icon="🏀")
-st.title("🏀 Fantasy Basketball AI Coach")
+st.set_page_config(page_title="Cas Boys AI Coach", page_icon="🏀", layout="centered")
 
 # Your League ID
 LEAGUE_ID = "1346846297000267776"
@@ -111,25 +110,52 @@ def fetch_user_league_data(selected_user_id):
                     
     return user_team, opponent_team, top_free_agents, current_week
 
-# --- USER SELECTION HEADER ---
+# Initialize session state for user login tracking
+if "active_user_id" not in st.session_state:
+    st.session_state.active_user_id = None
+if "active_user_name" not in st.session_state:
+    st.session_state.active_user_name = None
+
 league_users = fetch_league_users()
 
-if league_users:
-    st.sidebar.title("⚙️ Manager Switcher")
-    selected_name = st.sidebar.selectbox("Select Profile:", list(league_users.keys()))
-    active_user_id = league_users[selected_name]
-else:
-    active_user_id = "1412647306305527808"
-    selected_name = "Default User"
+# --- HOME SCREEN / LANDING VIEW (Middle of Screen) ---
+if not st.session_state.active_user_id:
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center;'>🏀 Cas Boys Fantasy AI Coach</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: gray; font-size: 18px;'>Select your manager profile below to open your team dashboard</p>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if league_users:
+            selected_name = st.selectbox("Choose Your Manager Profile:", list(league_users.keys()))
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🚀 Enter Locker Room", use_container_width=True):
+                st.session_state.active_user_name = selected_name
+                st.session_state.active_user_id = league_users[selected_name]
+                st.session_state.messages = [
+                    {"role": "assistant", "content": f"Hey {selected_name}! I'm synced with your team's live roster and opponent data. What fantasy advice do you need?"}
+                ]
+                st.rerun()
+        else:
+            st.error("Could not load league users from Sleeper API.")
+    st.stop()  # Stops execution here so the dashboard doesn't render until logged in
 
-st.info(f"👤 Currently Viewing AI Coach for: **{selected_name}**")
+# --- DASHBOARD & CHAT SCREEN (After Logging In) ---
+selected_name = st.session_state.active_user_name
+active_user_id = st.session_state.active_user_id
 
-# Reset chat messages when switching to a different user profile
-if "current_profile" not in st.session_state or st.session_state.current_profile != selected_name:
-    st.session_state.current_profile = selected_name
-    st.session_state.messages = [
-        {"role": "assistant", "content": f"Hey {selected_name}! I'm synced with your team's live roster and opponent data. What fantasy advice do you need?"}
-    ]
+st.title("🏀 Fantasy Basketball AI Coach")
+
+# Top Bar with Profile Info & Switch Button
+top_col1, top_col2 = st.columns([3, 1])
+with top_col1:
+    st.info(f"👤 Active Manager: **{selected_name}**")
+with top_col2:
+    if st.button("🔄 Switch Manager", use_container_width=True):
+        st.session_state.active_user_id = None
+        st.session_state.active_user_name = None
+        st.rerun()
 
 # Fetch Live Data for the Selected User
 user_team, opponent_team, top_fa, current_week = fetch_user_league_data(active_user_id)
@@ -151,8 +177,10 @@ with col2:
 with st.expander("🔥 Top Trending Free Agents Available", expanded=False):
     st.write(", ".join(top_fa) if top_fa else "No trending free agents found.")
 
+st.markdown("---")
+
 # Render chat messages
-for message in st.session_state.messages:
+for message in st.session_state.get("messages", []):
     with st.chat_message(message["role"]):
         st.write(message["content"])
 
@@ -213,3 +241,4 @@ if user_prompt := st.chat_input("Ask about your starters, matchups, or waiver pi
                     st.session_state.messages.append({"role": "assistant", "content": response_text})
                 else:
                     st.error(f"Error generating advice: {last_error}")
+                    
