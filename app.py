@@ -10,7 +10,7 @@ st.title("🏀 Fantasy Basketball AI Coach")
 LEAGUE_ID = "1346846297000267776"
 USER_ID = "1412647306305527808"
 
-# 1. Automatically retrieve key from Streamlit Secrets or Environment
+# Automatically retrieve API Key from Secrets
 api_key = st.secrets.get("GEMINI_API_KEY", None)
 
 @st.cache_data(ttl=86400)
@@ -47,12 +47,14 @@ if 'starters' in st.session_state:
     
     if st.button("Get AI Recommendation"):
         if not api_key:
-            st.error("API Key not found in Secrets. Please add GEMINI_API_KEY to app secrets.")
+            st.error("API Key not found in Secrets. Please add GEMINI_API_KEY to your Streamlit app secrets.")
         else:
             with st.spinner("Analyzing your roster..."):
                 try:
                     genai.configure(api_key=api_key)
-                    model = genai.GenerativeModel("gemini-1.5-flash")
+                    
+                    # Valid current Gemini model string
+                    model = genai.GenerativeModel("gemini-2.5-flash")
                     
                     prompt = f"""
                     You are a Fantasy Basketball expert assistant.
