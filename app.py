@@ -3,14 +3,13 @@ import requests
 import google.generativeai as genai
 
 # Page Configuration
-st.set_page_config(page_title="Cas Boys BBall AI Coach", page_icon="🏀")
-st.title("🏀 Live Fantasy Basketball AI Assistant")
+st.set_page_config(page_title="League AI Coach", page_icon="🏀")
+st.title("🏀 Fantasy Basketball AI Coach")
 
-# Sleeper Info
+# Your League ID (Shared by everyone in your league)
 LEAGUE_ID = "1346846297000267776"
-USER_ID = "1412647306305527808"
 
-# List of models to try in order (Fallback list)
+# Backup list of model names to prevent API crashes
 FALLBACK_MODELS = [
     "gemini-3.8-flash",
     "gemini-1.5-flash",
@@ -22,10 +21,21 @@ api_key = st.secrets.get("GEMINI_API_KEY", None)
 
 @st.cache_data(ttl=86400)
 def load_all_players():
-    """Fetch and cache all NBA players (cached once daily)"""
+    """Fetch and cache all NBA players"""
     url = "https://api.sleeper.app/v1/players/nba"
     res = requests.get(url)
     return res.json() if res.status_code == 200 else {}
+
+@st.cache_data(ttl=3600)
+def fetch_league_users():
+    """Fetch all managers/users in the league"""
+    url = f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/users"
+    res = requests.get(url)
+    if res.status_code == 200:
+        users = res.json()
+        # Map user_id to display_name
+        return {u.get("display_name", f"User {u['user_id']}"): u["user_id"] for u in users}
+    return {}
 
 @st.cache_data(ttl=3600)
 def get_league_state():
@@ -36,8 +46,8 @@ def get_league_state():
     except Exception:
         return 1
 
-def fetch_league_data():
-    """Fetch user team, opponent team, and top available free agents"""
+def fetch_user_league_data(selected_user_id):
+    """Fetch team, opponent team, and top available free agents for selected user"""
     all_players = load_all_players()
     current_week = get_league_state()
     
@@ -48,8 +58,8 @@ def fetch_league_data():
         
     rosters = rosters_res.json()
     
-    # Find user roster
-    my_roster = next((r for r in rosters if str(r.get('owner_id')) == USER_ID), None)
+    # Find selected user's roster
+    my_roster = next((r for r in rosters if str(r.get('owner_id')) == str(selected_user_id)), None)
     my_roster_id = my_roster['roster_id'] if my_roster else None
     
     # Track all taken player IDs across the entire league
@@ -57,7 +67,7 @@ def fetch_league_data():
     for r in rosters:
         taken_player_ids.update(r.get("players", []) or [])
         
-    # Build User Roster Dict
+    # Build Selected User Roster Dict
     user_team = {"starters": [], "bench": []}
     if my_roster:
         starters = my_roster.get("starters", []) or []
@@ -106,15 +116,29 @@ def fetch_league_data():
                     
     return user_team, opponent_team, top_free_agents, current_week
 
-# Fetch Live Context Data
-user_team, opponent_team, top_fa, current_week = fetch_league_data()
+# --- USER SELECTION HEADER ---
+league_users = fetch_league_users()
 
-# Display Live Dashboard info in expanding dropdowns
+if league_users:
+    st.sidebar.title("⚙️ User Selection")
+    selected_name = st.sidebar.selectbox("Select Your Manager Profile:", list(league_users.keys()))
+    active_user_id = league_users[selected_name]
+else:
+    # Default fallback to original ID if network fails
+    active_user_id = "1412647306305527808"
+    selected_name = "Default User"
+
+st.info(f"👤 Currently Viewing AI Coach for: **{selected_name}**")
+
+# Fetch Live Data for the Selected User
+user_team, opponent_team, top_fa, current_week = fetch_user_league_data(active_user_id)
+
+# Display Dashboard
 st.write(f"### 📅 Week {current_week} Overview")
 
 col1, col2 = st.columns(2)
 with col1:
-    with st.expander("🏀 My Roster", expanded=False):
+    with st.expander(f"🏀 {selected_name}'s Roster", expanded=False):
         st.write(f"**Starters:** {', '.join(user_team['starters']) if user_team['starters'] else 'None'}")
         st.write(f"**Bench:** {', '.join(user_team['bench']) if user_team['bench'] else 'None'}")
 
@@ -126,19 +150,19 @@ with col2:
 with st.expander("🔥 Top Trending Free Agents Available", expanded=False):
     st.write(", ".join(top_fa) if top_fa else "No trending free agents found.")
 
-# Initialize message history
+# Chat System
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "assistant", "content": "Hey! I'm connected directly to your Sleeper league, opponent data, and top free agents. What would you like help with today?"}
+        {"role": "assistant", "content": f"Hey {selected_name}! I'm synced with your team's live roster and opponent data. What fantasy advice do you need?"}
     ]
 
-# Render existing chat messages
+# Render chat messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.write(message["content"])
 
 # Sticky Chat Input
-if user_prompt := st.chat_input("Ask about starters, trades, or who to pick up..."):
+if user_prompt := st.chat_input("Ask about your starters, matchups, or waiver pickups..."):
     with st.chat_message("user"):
         st.write(user_prompt)
     
@@ -148,17 +172,17 @@ if user_prompt := st.chat_input("Ask about starters, trades, or who to pick up..
         st.error("API Key missing! Please add GEMINI_API_KEY to your Streamlit app secrets.")
     else:
         with st.chat_message("assistant"):
-            with st.spinner("Analyzing league context..."):
-                u_team, opp_team, free_agents, week = fetch_league_data()
+            with st.spinner("Analyzing team context..."):
+                u_team, opp_team, free_agents, week = fetch_user_league_data(active_user_id)
                 genai.configure(api_key=api_key)
                 
                 system_context = f"""
-                You are a Fantasy Basketball expert assistant with real-time access to the user's Sleeper league data.
+                You are a Fantasy Basketball expert assistant serving user '{selected_name}'.
                 
                 Current League Week: {week}
                 Scoring Settings: PTS = 0.5, REB = 1, AST = 1, STL = 2, BLK = 2, 3PM = 1, TO = -1, DD = 1, TD = 2.
                 
-                --- USER'S TEAM ---
+                --- {selected_name.upper()}'S TEAM ---
                 Starters: {', '.join(u_team['starters'])}
                 Bench: {', '.join(u_team['bench'])}
                 
@@ -169,14 +193,13 @@ if user_prompt := st.chat_input("Ask about starters, trades, or who to pick up..
                 --- TOP TRENDING AVAILABLE FREE AGENTS ---
                 {', '.join(free_agents)}
                 
-                Provide specific, strategic, and concise fantasy basketball advice optimized for these points league settings.
+                Provide tailored strategy for {selected_name}'s specific team.
                 """
                 
                 conversation = system_context + "\n\nConversation History:\n"
                 for msg in st.session_state.messages:
                     conversation += f"{msg['role'].capitalize()}: {msg['content']}\n"
 
-                # FALLBACK LOOP: Try each model until one works
                 response_text = None
                 last_error = None
 
@@ -185,13 +208,13 @@ if user_prompt := st.chat_input("Ask about starters, trades, or who to pick up..
                         model = genai.GenerativeModel(model_name)
                         response = model.generate_content(conversation)
                         response_text = response.text
-                        break  # Successfully generated, exit loop
+                        break
                     except Exception as e:
                         last_error = e
-                        continue  # Try the next model in FALLBACK_MODELS
+                        continue
 
                 if response_text:
                     st.write(response_text)
                     st.session_state.messages.append({"role": "assistant", "content": response_text})
                 else:
-                    st.error(f"All model attempts failed. Last error: {last_error}")
+                    st.error(f"Error generating advice: {last_error}")
