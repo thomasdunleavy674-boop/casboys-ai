@@ -4,7 +4,7 @@ import google.generativeai as genai
 
 # Page Configuration
 st.set_page_config(page_title="Cas Boys BBall AI Coach", page_icon="🏀")
-st.title("🏀 Fantasy Basketball AI Chat Coach")
+st.title("🏀 Live Fantasy Basketball AI Chat Coach")
 
 # Sleeper Info
 LEAGUE_ID = "1346846297000267776"
@@ -15,16 +15,20 @@ api_key = st.secrets.get("GEMINI_API_KEY", None)
 
 @st.cache_data(ttl=86400)
 def load_all_players():
-    """Fetch and cache NBA player database"""
+    """Fetch all NBA players (cached once daily since player list rarely changes)"""
     url = "https://api.sleeper.app/v1/players/nba"
     res = requests.get(url)
     return res.json() if res.status_code == 200 else {}
 
-@st.cache_data(ttl=3600)
-def fetch_roster():
-    """Fetch user starting lineup and bench"""
+def fetch_live_roster():
+    """Fetch LIVE roster and matchup details directly from Sleeper API without cache"""
     all_players = load_all_players()
-    rosters = requests.get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/rosters").json()
+    rosters_res = requests.get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/rosters")
+    
+    if rosters_res.status_code != 200:
+        return [], []
+        
+    rosters = rosters_res.json()
     my_roster = next((r for r in rosters if r['owner_id'] == USER_ID), None)
     
     if my_roster:
@@ -37,27 +41,27 @@ def fetch_roster():
         return starters, bench
     return [], []
 
-# Fetch roster details
-starters, bench = fetch_roster()
+# Fetch live team data on every page load
+live_starters, live_bench = fetch_live_roster()
 
-# Display current roster in a collapsed section
-with st.expander("📋 View My Sleeper Roster", expanded=False):
-    st.write(f"**Starters:** {', '.join(starters)}")
-    st.write(f"**Bench:** {', '.join(bench)}")
+# Display current live roster in an expandable tab
+with st.expander("🔴 Live Sleeper Roster (Auto-Refreshed)", expanded=False):
+    st.write(f"**Starters:** {', '.join(live_starters)}")
+    st.write(f"**Bench:** {', '.join(live_bench)}")
 
-# 1. Initialize message history in memory if not already present
+# Initialize message history in memory
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "assistant", "content": "Hey! I'm your Fantasy Basketball AI Coach. Ask me anything about your roster, waiver wire pickups, or starting lineups!"}
+        {"role": "assistant", "content": "Hey! I'm connected directly to your live Sleeper roster. Ask me anything about your team!"}
     ]
 
-# 2. Render existing chat messages on screen
+# Render existing chat messages on screen
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.write(message["content"])
 
-# 3. Sticky Chat Input bar at the bottom
-if user_prompt := st.chat_input("Type your question here..."):
+# Sticky Chat Input bar
+if user_prompt := st.chat_input("Ask about starters, trades, or waiver pickups..."):
     # Display the user's message immediately
     with st.chat_message("user"):
         st.write(user_prompt)
@@ -65,28 +69,29 @@ if user_prompt := st.chat_input("Type your question here..."):
     # Add user message to history
     st.session_state.messages.append({"role": "user", "content": user_prompt})
 
-    # Generate response using AI
     if not api_key:
         st.error("API Key missing! Please add GEMINI_API_KEY in Streamlit app secrets.")
     else:
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
+            with st.spinner("Checking live roster & analyzing..."):
                 try:
+                    # Re-verify live roster at moment of asking
+                    current_starters, current_bench = fetch_live_roster()
+                    
                     genai.configure(api_key=api_key)
                     model = genai.GenerativeModel("gemini-3.8-flash")
                     
-                    # Construct system context with roster info and chat history
+                    # Live Context injected directly into prompt
                     system_context = f"""
-                    You are a Fantasy Basketball expert assistant.
+                    You are a Fantasy Basketball expert assistant with live access to the user's team.
                     
                     League Format: Points League
                     Scoring Settings: PTS = 0.5, REB = 1, AST = 1, STL = 2, BLK = 2, 3PM = 1, TO = -1, DD = 1, TD = 2.
                     
-                    User Starters: {', '.join(starters)}
-                    User Bench: {', '.join(bench)}
+                    Current Live Starters: {', '.join(current_starters)}
+                    Current Live Bench: {', '.join(current_bench)}
                     """
                     
-                    # Prepare conversation history for Gemini
                     conversation = system_context + "\n\nConversation History:\n"
                     for msg in st.session_state.messages:
                         conversation += f"{msg['role'].capitalize()}: {msg['content']}\n"
@@ -99,4 +104,4 @@ if user_prompt := st.chat_input("Type your question here..."):
                     st.session_state.messages.append({"role": "assistant", "content": bot_reply})
                     
                 except Exception as e:
-                    st.error(f"Error generating advice: {e}")
+                    st.error(f"Error generating response: {e}")
