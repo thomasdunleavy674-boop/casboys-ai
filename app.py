@@ -5,6 +5,20 @@ import google.generativeai as genai
 # Page Configuration
 st.set_page_config(page_title="Cas Boys AI Coach", page_icon="🏀", layout="centered")
 
+# --- CUSTOM BLUE-TO-BLACK GRADIENT CSS ---
+st.markdown("""
+    <style>
+    .stApp {
+        background: linear-gradient(to bottom, #1e3a8a 0%, #0a0e1a 45%, #000000 100%);
+        background-attachment: fixed;
+    }
+    /* Make text elements pop nicely against the gradient background */
+    h1, h2, h3, p, label, .stMarkdown {
+        color: #f8fafc !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # Your League ID
 LEAGUE_ID = "1346846297000267776"
 
@@ -122,7 +136,7 @@ league_users = fetch_league_users()
 if not st.session_state.active_user_id:
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown("<h1 style='text-align: center;'>🏀 Cas Boys Fantasy AI Coach</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: gray; font-size: 18px;'>Select your manager profile below to open your team dashboard</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #cbd5e1; font-size: 18px;'>Select your manager profile below to open your team dashboard</p>", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -139,7 +153,7 @@ if not st.session_state.active_user_id:
                 st.rerun()
         else:
             st.error("Could not load league users from Sleeper API.")
-    st.stop()  # Stops execution here so the dashboard doesn't render until logged in
+    st.stop()
 
 # --- DASHBOARD & CHAT SCREEN (After Logging In) ---
 selected_name = st.session_state.active_user_name
@@ -241,4 +255,3 @@ if user_prompt := st.chat_input("Ask about your starters, matchups, or waiver pi
                     st.session_state.messages.append({"role": "assistant", "content": response_text})
                 else:
                     st.error(f"Error generating advice: {last_error}")
-                    
