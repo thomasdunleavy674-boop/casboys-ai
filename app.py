@@ -146,7 +146,7 @@ if user_prompt := st.chat_input("Ask about injuries, real-time news, or strategy
                     
                     # ENABLED GOOGLE SEARCH GROUNDING
                     model = genai.GenerativeModel(
-                        "gemini-3.8-flash",
+                        "gemini-2.5-flash",
                         tools='google_search_retrieval'
                     )
                     
