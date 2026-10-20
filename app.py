@@ -23,8 +23,11 @@ def load_all_players():
 @st.cache_data(ttl=3600)
 def get_league_state():
     """Fetch current NBA week from Sleeper API"""
-    res = requests.get("https://api.sleeper.app/v1/state/nba").json()
-    return res.get("week", 1)
+    try:
+        res = requests.get("https://api.sleeper.app/v1/state/nba").json()
+        return res.get("week", 1)
+    except Exception:
+        return 1
 
 def fetch_league_data():
     """Fetch user team, opponent team, and top available free agents"""
@@ -34,12 +37,12 @@ def fetch_league_data():
     # 1. Fetch Rosters
     rosters_res = requests.get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/rosters")
     if rosters_res.status_code != 200:
-        return {}, {}, [], current_week
+        return {"starters": [], "bench": []}, {"starters": [], "bench": []}, [], current_week
         
     rosters = rosters_res.json()
     
     # Find user roster
-    my_roster = next((r for r in rosters if r['owner_id'] == USER_ID), None)
+    my_roster = next((r for r in rosters if str(r.get('owner_id')) == USER_ID), None)
     my_roster_id = my_roster['roster_id'] if my_roster else None
     
     # Track all taken player IDs across the entire league
@@ -63,11 +66,11 @@ def fetch_league_data():
     
     if matchups_res.status_code == 200 and my_roster_id:
         matchups = matchups_res.json()
-        my_matchup = next((m for m in matchups if m['roster_id'] == my_roster_id), None)
+        my_matchup = next((m for m in matchups if m.get('roster_id') == my_roster_id), None)
         
         if my_matchup:
             matchup_id = my_matchup.get("matchup_id")
-            opp_matchup = next((m for m in matchups if m.get("matchup_id") == matchup_id and m['roster_id'] != my_roster_id), None)
+            opp_matchup = next((m for m in matchups if m.get("matchup_id") == matchup_id and m.get('roster_id') != my_roster_id), None)
             
             if opp_matchup:
                 opp_starters = opp_matchup.get("starters", []) or []
@@ -87,8 +90,8 @@ def fetch_league_data():
             pid = item.get("player_id")
             if pid not in taken_player_ids and pid in all_players:
                 p_name = all_players[pid].get("full_name")
-                p_pos = all_players[pid].get("position")
-                p_team = all_players[pid].get("team")
+                p_pos = all_players[pid].get("position", "")
+                p_team = all_players[pid].get("team", "")
                 if p_name:
                     top_free_agents.append(f"{p_name} ({p_pos} - {p_team})")
                 if len(top_free_agents) >= 15:
@@ -105,13 +108,13 @@ st.write(f"### 📅 Week {current_week} Overview")
 col1, col2 = st.columns(2)
 with col1:
     with st.expander("🏀 My Roster", expanded=False):
-        st.write(f"**Starters:** {', '.join(user_team['starters'])}")
-        st.write(f"**Bench:** {', '.join(user_team['bench'])}")
+        st.write(f"**Starters:** {', '.join(user_team['starters']) if user_team['starters'] else 'None'}")
+        st.write(f"**Bench:** {', '.join(user_team['bench']) if user_team['bench'] else 'None'}")
 
 with col2:
     with st.expander("⚔️ Opponent Roster", expanded=False):
-        st.write(f"**Starters:** {', '.join(opponent_team['starters'])}")
-        st.write(f"**Bench:** {', '.join(opponent_team['bench'])}")
+        st.write(f"**Starters:** {', '.join(opponent_team['starters']) if opponent_team['starters'] else 'None'}")
+        st.write(f"**Bench:** {', '.join(opponent_team['bench']) if opponent_team['bench'] else 'None'}")
 
 with st.expander("🔥 Top Trending Free Agents Available", expanded=False):
     st.write(", ".join(top_fa) if top_fa else "No trending free agents found.")
@@ -119,39 +122,37 @@ with st.expander("🔥 Top Trending Free Agents Available", expanded=False):
 # Initialize message history
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "assistant", "content": "Hey! I'm connected to your live Sleeper roster and powered by Google Search. Ask me about live NBA news, player injuries, or game schedules!"}
+        {"role": "assistant", "content": "Hey! I'm connected directly to your Sleeper league, opponent data, and top free agents. What would you like help with today?"}
     ]
 
-# Render chat messages
+# Render existing chat messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.write(message["content"])
 
 # Sticky Chat Input
-if user_prompt := st.chat_input("Ask about injuries, real-time news, or strategy..."):
+if user_prompt := st.chat_input("Ask about starters, trades, or who to pick up..."):
     with st.chat_message("user"):
         st.write(user_prompt)
     
     st.session_state.messages.append({"role": "user", "content": user_prompt})
 
     if not api_key:
-        st.error("API Key missing! Please check Streamlit app secrets.")
+        st.error("API Key missing! Please add GEMINI_API_KEY to your Streamlit app secrets.")
     else:
         with st.chat_message("assistant"):
-            with st.spinner("Searching the web & analyzing league context..."):
+            with st.spinner("Analyzing league context..."):
                 try:
+                    # Re-fetch live data at query time
                     u_team, opp_team, free_agents, week = fetch_league_data()
                     
                     genai.configure(api_key=api_key)
                     
-                    # ENABLED GOOGLE SEARCH GROUNDING
-                    model = genai.GenerativeModel(
-                        "gemini-2.5-flash",
-                        tools='google_search_retrieval'
-                    )
+                    # Stable model endpoint
+                    model = genai.GenerativeModel("gemini-2.0-flash")
                     
                     system_context = f"""
-                    You are a Fantasy Basketball expert assistant with real-time access to the user's Sleeper league data AND live Google Search.
+                    You are a Fantasy Basketball expert assistant with real-time access to the user's Sleeper league data.
                     
                     Current League Week: {week}
                     Scoring Settings: PTS = 0.5, REB = 1, AST = 1, STL = 2, BLK = 2, 3PM = 1, TO = -1, DD = 1, TD = 2.
@@ -167,7 +168,7 @@ if user_prompt := st.chat_input("Ask about injuries, real-time news, or strategy
                     --- TOP TRENDING AVAILABLE FREE AGENTS ---
                     {', '.join(free_agents)}
                     
-                    You have access to live web search to check up-to-the-minute NBA injury reports, starting lineup announcements, and schedule updates.
+                    Provide specific, strategic, and concise fantasy basketball advice optimized for these points league settings.
                     """
                     
                     conversation = system_context + "\n\nConversation History:\n"
