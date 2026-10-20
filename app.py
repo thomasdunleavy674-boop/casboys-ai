@@ -6,17 +6,17 @@ import google.generativeai as genai
 st.set_page_config(page_title="League AI Coach", page_icon="🏀")
 st.title("🏀 Fantasy Basketball AI Coach")
 
-# Your League ID (Shared by everyone in your league)
+# Your League ID
 LEAGUE_ID = "1346846297000267776"
 
-# Backup list of model names to prevent API crashes
+# Backup list of model names
 FALLBACK_MODELS = [
     "gemini-3.8-flash",
     "gemini-1.5-flash",
     "gemini-flash"
 ]
 
-# Retrieve API key automatically from Streamlit secrets
+# Retrieve API key from Streamlit secrets
 api_key = st.secrets.get("GEMINI_API_KEY", None)
 
 @st.cache_data(ttl=86400)
@@ -28,18 +28,17 @@ def load_all_players():
 
 @st.cache_data(ttl=3600)
 def fetch_league_users():
-    """Fetch all managers/users in the league"""
+    """Fetch all managers in the league"""
     url = f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/users"
     res = requests.get(url)
     if res.status_code == 200:
         users = res.json()
-        # Map user_id to display_name
-        return {u.get("display_name", f"User {u['user_id']}"): u["user_id"] for u in users}
+        return {u.get("display_name", f"User_{u['user_id']}"): u["user_id"] for u in users}
     return {}
 
 @st.cache_data(ttl=3600)
 def get_league_state():
-    """Fetch current NBA week from Sleeper API"""
+    """Fetch current NBA week"""
     try:
         res = requests.get("https://api.sleeper.app/v1/state/nba").json()
         return res.get("week", 1)
@@ -47,7 +46,7 @@ def get_league_state():
         return 1
 
 def fetch_user_league_data(selected_user_id):
-    """Fetch team, opponent team, and top available free agents for selected user"""
+    """Fetch team, opponent team, and top available free agents"""
     all_players = load_all_players()
     current_week = get_league_state()
     
@@ -57,17 +56,13 @@ def fetch_user_league_data(selected_user_id):
         return {"starters": [], "bench": []}, {"starters": [], "bench": []}, [], current_week
         
     rosters = rosters_res.json()
-    
-    # Find selected user's roster
     my_roster = next((r for r in rosters if str(r.get('owner_id')) == str(selected_user_id)), None)
     my_roster_id = my_roster['roster_id'] if my_roster else None
     
-    # Track all taken player IDs across the entire league
     taken_player_ids = set()
     for r in rosters:
         taken_player_ids.update(r.get("players", []) or [])
         
-    # Build Selected User Roster Dict
     user_team = {"starters": [], "bench": []}
     if my_roster:
         starters = my_roster.get("starters", []) or []
@@ -77,7 +72,7 @@ def fetch_user_league_data(selected_user_id):
         user_team["starters"] = [all_players.get(pid, {}).get("full_name", pid) for pid in starters]
         user_team["bench"] = [all_players.get(pid, {}).get("full_name", pid) for pid in bench]
 
-    # 2. Fetch Opponent Data for Current Week
+    # 2. Fetch Opponent Data
     opponent_team = {"starters": [], "bench": []}
     matchups_res = requests.get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/matchups/{current_week}")
     
@@ -120,15 +115,21 @@ def fetch_user_league_data(selected_user_id):
 league_users = fetch_league_users()
 
 if league_users:
-    st.sidebar.title("⚙️ User Selection")
-    selected_name = st.sidebar.selectbox("Select Your Manager Profile:", list(league_users.keys()))
+    st.sidebar.title("⚙️ Manager Switcher")
+    selected_name = st.sidebar.selectbox("Select Profile:", list(league_users.keys()))
     active_user_id = league_users[selected_name]
 else:
-    # Default fallback to original ID if network fails
     active_user_id = "1412647306305527808"
     selected_name = "Default User"
 
 st.info(f"👤 Currently Viewing AI Coach for: **{selected_name}**")
+
+# Reset chat messages when switching to a different user profile
+if "current_profile" not in st.session_state or st.session_state.current_profile != selected_name:
+    st.session_state.current_profile = selected_name
+    st.session_state.messages = [
+        {"role": "assistant", "content": f"Hey {selected_name}! I'm synced with your team's live roster and opponent data. What fantasy advice do you need?"}
+    ]
 
 # Fetch Live Data for the Selected User
 user_team, opponent_team, top_fa, current_week = fetch_user_league_data(active_user_id)
@@ -150,12 +151,6 @@ with col2:
 with st.expander("🔥 Top Trending Free Agents Available", expanded=False):
     st.write(", ".join(top_fa) if top_fa else "No trending free agents found.")
 
-# Chat System
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "assistant", "content": f"Hey {selected_name}! I'm synced with your team's live roster and opponent data. What fantasy advice do you need?"}
-    ]
-
 # Render chat messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
@@ -169,7 +164,7 @@ if user_prompt := st.chat_input("Ask about your starters, matchups, or waiver pi
     st.session_state.messages.append({"role": "user", "content": user_prompt})
 
     if not api_key:
-        st.error("API Key missing! Please add GEMINI_API_KEY to your Streamlit app secrets.")
+        st.error("API Key missing! Please add GEMINI_API_KEY to your Streamlit secrets.")
     else:
         with st.chat_message("assistant"):
             with st.spinner("Analyzing team context..."):
