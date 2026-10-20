@@ -4,14 +4,14 @@ import google.generativeai as genai
 
 # Set up page layout
 st.set_page_config(page_title="Cas Boys BBall AI Coach", page_icon="🏀")
-st.title("🏀 Fantasy Basketball AI Coach (Free)")
+st.title("🏀 Fantasy Basketball AI Coach")
 
-# Your Sleeper Information
+# Sleeper Info
 LEAGUE_ID = "1346846297000267776"
 USER_ID = "1412647306305527808"
 
-# Free Gemini API Key input
-api_key = st.text_input("Enter Free Gemini API Key:", type="password")
+# 1. Automatically retrieve key from Streamlit Secrets or Environment
+api_key = st.secrets.get("GEMINI_API_KEY", None)
 
 @st.cache_data(ttl=86400)
 def load_all_players():
@@ -47,11 +47,10 @@ if 'starters' in st.session_state:
     
     if st.button("Get AI Recommendation"):
         if not api_key:
-            st.error("Please enter your Gemini API Key above.")
+            st.error("API Key not found in Secrets. Please add GEMINI_API_KEY to app secrets.")
         else:
-            with st.spinner("Analyzing your roster with Gemini..."):
+            with st.spinner("Analyzing your roster..."):
                 try:
-                    # Configure Gemini with your free key
                     genai.configure(api_key=api_key)
                     model = genai.GenerativeModel("gemini-1.5-flash")
                     
