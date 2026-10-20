@@ -53,8 +53,8 @@ if 'starters' in st.session_state:
                 try:
                     genai.configure(api_key=api_key)
                     
-                    # Valid current Gemini model string
-                    model = genai.GenerativeModel("gemini-2.5-flash")
+                    # Updated model string
+                    model = genai.GenerativeModel("gemini-3.8-flash")
                     
                     prompt = f"""
                     You are a Fantasy Basketball expert assistant.
