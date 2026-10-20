@@ -67,7 +67,6 @@ def fetch_league_data():
         
         if my_matchup:
             matchup_id = my_matchup.get("matchup_id")
-            # Opponent is the other roster with matching matchup_id
             opp_matchup = next((m for m in matchups if m.get("matchup_id") == matchup_id and m['roster_id'] != my_roster_id), None)
             
             if opp_matchup:
@@ -78,9 +77,8 @@ def fetch_league_data():
                 opponent_team["starters"] = [all_players.get(pid, {}).get("full_name", pid) for pid in opp_starters]
                 opponent_team["bench"] = [all_players.get(pid, {}).get("full_name", pid) for pid in opp_bench]
 
-    # 3. Fetch Top Free Agents (Active NBA players not taken by any roster)
+    # 3. Fetch Top Free Agents
     top_free_agents = []
-    # Fetch trending add player IDs from Sleeper
     trending_res = requests.get("https://api.sleeper.app/v1/players/nba/trending/add")
     
     if trending_res.status_code == 200:
@@ -121,7 +119,7 @@ with st.expander("🔥 Top Trending Free Agents Available", expanded=False):
 # Initialize message history
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "assistant", "content": "Hey! I'm synced with your roster, opponent matchup, and top waiver pickups. Ask me anything!"}
+        {"role": "assistant", "content": "Hey! I'm connected to your live Sleeper roster and powered by Google Search. Ask me about live NBA news, player injuries, or game schedules!"}
     ]
 
 # Render chat messages
@@ -130,7 +128,7 @@ for message in st.session_state.messages:
         st.write(message["content"])
 
 # Sticky Chat Input
-if user_prompt := st.chat_input("Ask about matchups, trades, or who to stream..."):
+if user_prompt := st.chat_input("Ask about injuries, real-time news, or strategy..."):
     with st.chat_message("user"):
         st.write(user_prompt)
     
@@ -140,16 +138,20 @@ if user_prompt := st.chat_input("Ask about matchups, trades, or who to stream...
         st.error("API Key missing! Please check Streamlit app secrets.")
     else:
         with st.chat_message("assistant"):
-            with st.spinner("Analyzing league context..."):
+            with st.spinner("Searching the web & analyzing league context..."):
                 try:
-                    # Live re-fetch at input moment
                     u_team, opp_team, free_agents, week = fetch_league_data()
                     
                     genai.configure(api_key=api_key)
-                    model = genai.GenerativeModel("gemini-3.8-flash")
+                    
+                    # ENABLED GOOGLE SEARCH GROUNDING
+                    model = genai.GenerativeModel(
+                        "gemini-3.8-flash",
+                        tools='google_search_retrieval'
+                    )
                     
                     system_context = f"""
-                    You are a Fantasy Basketball expert assistant with real-time access to the user's Sleeper league data.
+                    You are a Fantasy Basketball expert assistant with real-time access to the user's Sleeper league data AND live Google Search.
                     
                     Current League Week: {week}
                     Scoring Settings: PTS = 0.5, REB = 1, AST = 1, STL = 2, BLK = 2, 3PM = 1, TO = -1, DD = 1, TD = 2.
@@ -165,7 +167,7 @@ if user_prompt := st.chat_input("Ask about matchups, trades, or who to stream...
                     --- TOP TRENDING AVAILABLE FREE AGENTS ---
                     {', '.join(free_agents)}
                     
-                    Use this real-time info to offer specific matchup strategy, streaming options, and roster advice.
+                    You have access to live web search to check up-to-the-minute NBA injury reports, starting lineup announcements, and schedule updates.
                     """
                     
                     conversation = system_context + "\n\nConversation History:\n"
