@@ -1,7 +1,12 @@
 import streamlit as st
 import requests
 
-st.set_page_config(page_title="Cas Boys AI Coach", page_icon="🏀", layout="centered", initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title="Cas Boys AI Coach", 
+    page_icon="🏀", 
+    layout="centered", 
+    initial_sidebar_state="expanded"
+)
 
 # --- CUSTOM BLUE-TO-BLACK GRADIENT CSS ---
 st.markdown("""
@@ -27,7 +32,7 @@ def fetch_league_users():
         return {u.get("display_name", f"User_{u['user_id']}"): u["user_id"] for u in users}
     return {}
 
-# Initialize session state for user profile
+# Initialize session state for active manager
 if "active_user_id" not in st.session_state:
     st.session_state.active_user_id = None
 if "active_user_name" not in st.session_state:
@@ -35,6 +40,7 @@ if "active_user_name" not in st.session_state:
 
 league_users = fetch_league_users()
 
+# Render Landing Header
 st.markdown("<br><br>", unsafe_allow_html=True)
 st.markdown("<h1 style='text-align: center;'>🏀 Cas Boys Fantasy AI Coach</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; color: #cbd5e1; font-size: 18px;'>Select your manager profile below to open your locker room</p>", unsafe_allow_html=True)
@@ -51,9 +57,11 @@ with col2:
             st.session_state.messages = [
                 {"role": "assistant", "content": f"Hey {selected_name}! I'm tracking your team. Ask me if you should lock in your lineup!"}
             ]
-            st.success(f"Logged in as **{selected_name}**! Use the sidebar menu to view **AI Coach** or **Team Info**.")
+            # Automatically jump to the AI Coach page upon logging in!
+            st.switch_page("pages/AI_Coach.py")
     else:
         st.error("Could not load league users from Sleeper API.")
 
+# Sidebar status
 if st.session_state.active_user_id:
     st.sidebar.info(f"👤 Manager: **{st.session_state.active_user_name}**")
