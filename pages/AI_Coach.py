@@ -4,6 +4,7 @@ import google.generativeai as genai
 
 st.set_page_config(page_title="AI Coach", page_icon="🏀", layout="centered")
 
+# --- CUSTOM BLUE-TO-BLACK GRADIENT & TRANSPARENT CHAT CSS ---
 st.markdown("""
     <style>
     .stApp {
@@ -12,6 +13,17 @@ st.markdown("""
     }
     h1, h2, h3, p, label, .stMarkdown {
         color: #f8fafc !important;
+    }
+    
+    /* --- MAKE CHAT INPUT FULLY TRANSPARENT --- */
+    [data-testid="stChatInput"] {
+        background-color: transparent !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        border-radius: 12px;
+    }
+    [data-testid="stChatInput"] textarea {
+        color: #f8fafc !important;
+        background-color: transparent !important;
     }
     </style>
     """, unsafe_allow_html=True)
