@@ -12,7 +12,6 @@ st.markdown("""
         background: linear-gradient(to bottom, #1e3a8a 0%, #0a0e1a 45%, #000000 100%);
         background-attachment: fixed;
     }
-    /* Make text elements pop nicely against the gradient background */
     h1, h2, h3, p, label, .stMarkdown {
         color: #f8fafc !important;
     }
@@ -22,11 +21,23 @@ st.markdown("""
 # Your League ID
 LEAGUE_ID = "1346846297000267776"
 
-# Backup list of model names
+# Comprehensive Model Fallback List
 FALLBACK_MODELS = [
     "gemini-3.8-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-3-flash-preview",
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-2.0-flash-exp",
     "gemini-1.5-flash",
-    "gemini-flash"
+    "gemini-1.5-flash-latest",
+    "gemini-1.5-flash-8b",
+    "gemini-1.5-pro",
+    "gemini-1.5-pro-latest"
 ]
 
 # Retrieve API key from Streamlit secrets
