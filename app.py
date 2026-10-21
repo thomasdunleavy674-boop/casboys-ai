@@ -57,11 +57,14 @@ with col2:
             st.session_state.messages = [
                 {"role": "assistant", "content": f"Hey {selected_name}! I'm tracking your team. Ask me if you should lock in your lineup!"}
             ]
-            # Automatically jump to the AI Coach page upon logging in!
-            st.switch_page("pages/AI_Coach.py")
+            
+            # Target the exact filename pages/AI_Coach.py
+            try:
+                st.switch_page("pages/AI_Coach.py")
+            except Exception:
+                st.success(f"Logged in as **{selected_name}**! Click **AI Coach** in the left sidebar menu to open your dashboard.")
     else:
         st.error("Could not load league users from Sleeper API.")
 
-# Sidebar status
 if st.session_state.active_user_id:
     st.sidebar.info(f"👤 Manager: **{st.session_state.active_user_name}**")
