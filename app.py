@@ -21,7 +21,7 @@ st.markdown("""
 # Your League ID
 LEAGUE_ID = "1346846297000267776"
 
-# Comprehensive Model Fallback List
+# Model Fallback Array
 FALLBACK_MODELS = [
     "gemini-3.8-flash",
     "gemini-3.6-flash",
@@ -70,14 +70,14 @@ def get_league_state():
         return 1
 
 def fetch_user_league_data(selected_user_id):
-    """Fetch team, opponent team, and top available free agents"""
+    """Fetch live team, opponent team, points scored, projections, and free agents"""
     all_players = load_all_players()
     current_week = get_league_state()
     
     # 1. Fetch Rosters
     rosters_res = requests.get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/rosters")
     if rosters_res.status_code != 200:
-        return {"starters": [], "bench": []}, {"starters": [], "bench": []}, [], current_week
+        return {}, {}, [], current_week, 0.0, 0.0, 0.0, 0.0
         
     rosters = rosters_res.json()
     my_roster = next((r for r in rosters if str(r.get('owner_id')) == str(selected_user_id)), None)
@@ -86,43 +86,60 @@ def fetch_user_league_data(selected_user_id):
     taken_player_ids = set()
     for r in rosters:
         taken_player_ids.update(r.get("players", []) or [])
-        
-    user_team = {"starters": [], "bench": []}
+
+    # 2. Fetch Matchups for Live Points and Projections
+    matchups_res = requests.get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/matchups/{current_week}")
+    matchups = matchups_res.json() if matchups_res.status_code == 200 else []
+    
+    my_matchup = next((m for m in matchups if m.get('roster_id') == my_roster_id), None) if my_roster_id else None
+    
+    my_total_pts = my_matchup.get("pts", 0.0) if my_matchup else 0.0
+    # Sleeper custom projections keys or default fallbacks
+    my_proj_pts = my_matchup.get("custom_points", 0.0) if my_matchup else 0.0
+    if my_proj_pts == 0.0 and my_matchup:
+        # Fallback estimation if custom_points isn't populated directly
+        my_proj_pts = sum(my_matchup.get("players_points", {}).values()) * 0.95 
+
+    # Build User Roster Breakdown (Starters with individual points if available)
+    user_team = {"starters": [], "bench": [], "details": []}
     if my_roster:
         starters = my_roster.get("starters", []) or []
-        players = my_roster.get("players", []) or []
-        bench = [p for p in players if p not in starters]
+        players_pts = my_matchup.get("players_points", {}) if my_matchup else {}
         
-        user_team["starters"] = [all_players.get(pid, {}).get("full_name", pid) for pid in starters]
-        user_team["bench"] = [all_players.get(pid, {}).get("full_name", pid) for pid in bench]
-
-    # 2. Fetch Opponent Data
-    opponent_team = {"starters": [], "bench": []}
-    matchups_res = requests.get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/matchups/{current_week}")
-    
-    if matchups_res.status_code == 200 and my_roster_id:
-        matchups = matchups_res.json()
-        my_matchup = next((m for m in matchups if m.get('roster_id') == my_roster_id), None)
-        
-        if my_matchup:
-            matchup_id = my_matchup.get("matchup_id")
-            opp_matchup = next((m for m in matchups if m.get("matchup_id") == matchup_id and m.get('roster_id') != my_roster_id), None)
+        for pid in starters:
+            p_name = all_players.get(pid, {}).get("full_name", pid)
+            p_score = players_pts.get(pid, 0.0)
+            user_team["starters"].append(f"{p_name} ({p_score} pts)")
+            user_team["details"].append({"name": p_name, "points": p_score})
             
-            if opp_matchup:
-                opp_starters = opp_matchup.get("starters", []) or []
-                opp_players = opp_matchup.get("players", []) or []
-                opp_bench = [p for p in opp_players if p not in opp_starters]
+        bench_ids = [p for p in (my_roster.get("players", []) or []) if p not in starters]
+        user_team["bench"] = [all_players.get(pid, {}).get("full_name", pid) for pid in bench_ids]
+
+    # Opponent Team Data
+    opponent_team = {"starters": [], "bench": []}
+    opp_total_pts, opp_proj_pts = 0.0, 0.0
+    if my_matchup:
+        matchup_id = my_matchup.get("matchup_id")
+        opp_matchup = next((m for m in matchups if m.get("matchup_id") == matchup_id and m.get('roster_id') != my_roster_id), None)
+        if opp_matchup:
+            opp_total_pts = opp_matchup.get("pts", 0.0)
+            opp_proj_pts = sum(opp_matchup.get("players_points", {}).values())
+            opp_starters = opp_matchup.get("starters", []) or []
+            opp_players_pts = opp_matchup.get("players_points", {})
+            
+            for pid in opp_starters:
+                p_name = all_players.get(pid, {}).get("full_name", pid)
+                p_score = opp_players_pts.get(pid, 0.0)
+                opponent_team["starters"].append(f"{p_name} ({p_score} pts)")
                 
-                opponent_team["starters"] = [all_players.get(pid, {}).get("full_name", pid) for pid in opp_starters]
-                opponent_team["bench"] = [all_players.get(pid, {}).get("full_name", pid) for pid in opp_bench]
+            opp_bench_ids = [p for p in (opp_matchup.get("players", []) or []) if p not in opp_starters]
+            opponent_team["bench"] = [all_players.get(pid, {}).get("full_name", pid) for pid in opp_bench_ids]
 
     # 3. Fetch Top Free Agents
     top_free_agents = []
     trending_res = requests.get("https://api.sleeper.app/v1/players/nba/trending/add")
-    
     if trending_res.status_code == 200:
-        trending = trending_res.json()
-        for item in trending:
+        for item in trending_res.json():
             pid = item.get("player_id")
             if pid not in taken_player_ids and pid in all_players:
                 p_name = all_players[pid].get("full_name")
@@ -130,12 +147,12 @@ def fetch_user_league_data(selected_user_id):
                 p_team = all_players[pid].get("team", "")
                 if p_name:
                     top_free_agents.append(f"{p_name} ({p_pos} - {p_team})")
-                if len(top_free_agents) >= 15:
+                if len(top_free_agents) >= 10:
                     break
                     
-    return user_team, opponent_team, top_free_agents, current_week
+    return user_team, opponent_team, top_free_agents, current_week, my_total_pts, my_proj_pts, opp_total_pts, opp_proj_pts
 
-# Initialize session state for user login tracking
+# Initialize session state for user login
 if "active_user_id" not in st.session_state:
     st.session_state.active_user_id = None
 if "active_user_name" not in st.session_state:
@@ -143,11 +160,11 @@ if "active_user_name" not in st.session_state:
 
 league_users = fetch_league_users()
 
-# --- HOME SCREEN / LANDING VIEW (Middle of Screen) ---
+# --- HOME SCREEN / LANDING VIEW ---
 if not st.session_state.active_user_id:
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown("<h1 style='text-align: center;'>🏀 Cas Boys Fantasy AI Coach</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #cbd5e1; font-size: 18px;'>Select your manager profile below to open your team dashboard</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #cbd5e1; font-size: 18px;'>Select your manager profile below to open your live team dashboard</p>", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -159,14 +176,14 @@ if not st.session_state.active_user_id:
                 st.session_state.active_user_name = selected_name
                 st.session_state.active_user_id = league_users[selected_name]
                 st.session_state.messages = [
-                    {"role": "assistant", "content": f"Hey {selected_name}! I'm synced with your team's live roster and opponent data. What fantasy advice do you need?"}
+                    {"role": "assistant", "content": f"Hey {selected_name}! I'm tracking your matchup points, individual player stats, and projections. Ask me if you should lock in your lineup!"}
                 ]
                 st.rerun()
         else:
             st.error("Could not load league users from Sleeper API.")
     st.stop()
 
-# --- DASHBOARD & CHAT SCREEN (After Logging In) ---
+# --- DASHBOARD & CHAT SCREEN ---
 selected_name = st.session_state.active_user_name
 active_user_id = st.session_state.active_user_id
 
@@ -182,22 +199,30 @@ with top_col2:
         st.session_state.active_user_name = None
         st.rerun()
 
-# Fetch Live Data for the Selected User
-user_team, opponent_team, top_fa, current_week = fetch_user_league_data(active_user_id)
+# Fetch Live Data
+user_team, opponent_team, top_fa, current_week, my_pts, my_proj, opp_pts, opp_proj = fetch_user_league_data(active_user_id)
 
-# Display Dashboard
-st.write(f"### 📅 Week {current_week} Overview")
+# --- SCOREBOARD METRICS ---
+st.write(f"### 📅 Week {current_week} Matchup Scoreboard")
+m_col1, m_col2 = st.columns(2)
+m_col1.metric(label=f"🟢 {selected_name} (You)", value=f"{my_pts:.1f} PTS", delta=f"Proj: {my_proj:.1f}")
+m_col2.metric(label="⚔️ Opponent", value=f"{opp_pts:.1f} PTS", delta=f"Proj: {opp_proj:.1f}")
 
+st.markdown("---")
+
+# Roster and Matchup Expanders
 col1, col2 = st.columns(2)
 with col1:
-    with st.expander(f"🏀 {selected_name}'s Roster", expanded=False):
-        st.write(f"**Starters:** {', '.join(user_team['starters']) if user_team['starters'] else 'None'}")
-        st.write(f"**Bench:** {', '.join(user_team['bench']) if user_team['bench'] else 'None'}")
+    with st.expander(f"🏀 {selected_name}'s Starters & Points", expanded=True):
+        for s in user_team['starters']:
+            st.write(f"- {s}")
+    with st.expander(f"bench", expanded=False):
+        st.write(f"{', '.join(user_team['bench']) if user_team['bench'] else 'None'}")
 
 with col2:
-    with st.expander("⚔️ Opponent Roster", expanded=False):
-        st.write(f"**Starters:** {', '.join(opponent_team['starters']) if opponent_team['starters'] else 'None'}")
-        st.write(f"**Bench:** {', '.join(opponent_team['bench']) if opponent_team['bench'] else 'None'}")
+    with st.expander(f"⚔️ Opponent Starters", expanded=True):
+        for os in opponent_team['starters']:
+            st.write(f"- {os}")
 
 with st.expander("🔥 Top Trending Free Agents Available", expanded=False):
     st.write(", ".join(top_fa) if top_fa else "No trending free agents found.")
@@ -210,7 +235,7 @@ for message in st.session_state.get("messages", []):
         st.write(message["content"])
 
 # Sticky Chat Input
-if user_prompt := st.chat_input("Ask about your starters, matchups, or waiver pickups..."):
+if user_prompt := st.chat_input("Ask if you should lock in your lineup or who to stream..."):
     with st.chat_message("user"):
         st.write(user_prompt)
     
@@ -220,8 +245,8 @@ if user_prompt := st.chat_input("Ask about your starters, matchups, or waiver pi
         st.error("API Key missing! Please add GEMINI_API_KEY to your Streamlit secrets.")
     else:
         with st.chat_message("assistant"):
-            with st.spinner("Analyzing team context..."):
-                u_team, opp_team, free_agents, week = fetch_user_league_data(active_user_id)
+            with st.spinner("Analyzing matchup performance & lock-in status..."):
+                u_team, opp_team, free_agents, week, m_p, m_pr, o_p, o_pr = fetch_user_league_data(active_user_id)
                 genai.configure(api_key=api_key)
                 
                 system_context = f"""
@@ -230,18 +255,20 @@ if user_prompt := st.chat_input("Ask about your starters, matchups, or waiver pi
                 Current League Week: {week}
                 Scoring Settings: PTS = 0.5, REB = 1, AST = 1, STL = 2, BLK = 2, 3PM = 1, TO = -1, DD = 1, TD = 2.
                 
-                --- {selected_name.upper()}'S TEAM ---
-                Starters: {', '.join(u_team['starters'])}
-                Bench: {', '.join(u_team['bench'])}
+                --- MATCHUP STATUS ---
+                {selected_name}'s Total Score: {m_p:.1f} (Projected: {m_pr:.1f})
+                Opponent's Total Score: {o_p:.1f} (Projected: {o_pr:.1f})
                 
-                --- OPPONENT'S TEAM ---
-                Starters: {', '.join(opp_team['starters'])}
-                Bench: {', '.join(opp_team['bench'])}
+                --- {selected_name.upper()}'S STARTERS & INDIVIDUAL POINTS ---
+                {', '.join(u_team['starters'])}
+                
+                --- OPPONENT'S STARTERS ---
+                {', '.join(opp_team['starters'])}
                 
                 --- TOP TRENDING AVAILABLE FREE AGENTS ---
                 {', '.join(free_agents)}
                 
-                Provide tailored strategy for {selected_name}'s specific team.
+                Evaluate whether it's a good idea to lock in current lineups, who scored well, and give strategic advice based on current live scores and projections.
                 """
                 
                 conversation = system_context + "\n\nConversation History:\n"
