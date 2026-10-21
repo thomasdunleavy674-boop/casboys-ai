@@ -18,7 +18,7 @@ st.markdown("""
 LEAGUE_ID = "1346846297000267776"
 
 if not st.session_state.get("active_user_id"):
-    st.warning("⚠️ Please select your manager profile on the Home page first!")
+    st.warning("⚠️ Please select your manager profile on the main page first!")
     st.stop()
 
 selected_name = st.session_state.active_user_name
