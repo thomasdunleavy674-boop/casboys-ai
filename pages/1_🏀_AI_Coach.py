@@ -24,10 +24,11 @@ FALLBACK_MODELS = [
     "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-flash-latest", 
     "gemini-1.5-flash-8b", "gemini-1.5-pro", "gemini-1.5-pro-latest"
 ]
+
 api_key = st.secrets.get("GEMINI_API_KEY", None)
 
 if not st.session_state.get("active_user_id"):
-    st.warning("⚠️ Please select your manager profile on the Home page first!")
+    st.warning("⚠️ Please select your manager profile on the main page first!")
     st.stop()
 
 selected_name = st.session_state.active_user_name
@@ -53,7 +54,7 @@ def fetch_context_data():
     current_week = get_league_state()
     rosters_res = requests.get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/rosters")
     if rosters_res.status_code != 200:
-        return [], [], current_week, 0, 0, 0, 0
+        return [], [], [], current_week, 0, 0, 0, 0
     rosters = rosters_res.json()
     my_roster = next((r for r in rosters if str(r.get('owner_id')) == str(active_user_id)), None)
     my_roster_id = my_roster['roster_id'] if my_roster else None
@@ -102,12 +103,7 @@ def fetch_context_data():
 
     return user_starters, opp_starters, top_fa, current_week, my_pts, my_proj, opp_pts, opp_proj
 
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "assistant", "content": f"Hey {selected_name}! Ask me if you should lock in your lineup or who to target on waivers."}
-    ]
-
-for message in st.session_state.messages:
+for message in st.session_state.get("messages", []):
     with st.chat_message(message["role"]):
         st.write(message["content"])
 
