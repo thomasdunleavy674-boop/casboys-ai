@@ -1,70 +1,107 @@
 import streamlit as st
 import requests
+from google import genai
 
+# --- Page Configuration ---
 st.set_page_config(
-    page_title="Cas Boys AI Coach", 
-    page_icon="🏀", 
-    layout="centered", 
-    initial_sidebar_state="expanded"
+    page_title="Fantasy Basketball AI Assistant",
+    page_icon="🏀",
+    layout="wide"
 )
 
-# --- CUSTOM BLUE-TO-BLACK GRADIENT CSS ---
-st.markdown("""
-    <style>
-    .stApp {
-        background: linear-gradient(to bottom, #1e3a8a 0%, #0a0e1a 45%, #000000 100%);
-        background-attachment: fixed;
+# Initialize Gemini Client (make sure your API key is in st.secrets)
+client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+
+# ==========================================
+# 1. CACHED SLEEPER API FUNCTIONS (Speed Boost)
+# ==========================================
+@st.cache_data(ttl=600)  # Caches data for 10 minutes to prevent laggy reruns
+def fetch_sleeper_league_data(league_id):
+    """Fetches league details, rosters, and users from Sleeper in one go."""
+    base_url = f"https://api.sleeper.app/v1/league/{league_id}"
+    
+    league_resp = requests.get(base_url).json()
+    rosters_resp = requests.get(f"{base_url}/rosters").json()
+    users_resp = requests.get(f"{base_url}/users").json()
+    
+    return {
+        "league": league_resp,
+        "rosters": rosters_resp,
+        "users": users_resp
     }
-    h1, h2, h3, p, label, .stMarkdown {
-        color: #f8fafc !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
 
-LEAGUE_ID = "1346846297000267776"
+# ==========================================
+# 2. SIDEBAR CONFIGURATION
+# ==========================================
+st.sidebar.title("⚙️ League Settings")
+league_id_input = st.sidebar.text_input(
+    "Sleeper League ID", 
+    value="123456789012345678"  # Default or placeholder
+)
 
-@st.cache_data(ttl=3600)
-def fetch_league_users():
-    url = f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/users"
-    res = requests.get(url)
-    if res.status_code == 200:
-        users = res.json()
-        return {u.get("display_name", f"User_{u['user_id']}"): u["user_id"] for u in users}
-    return {}
+# Load data only if league ID is provided
+league_data = None
+if league_id_input:
+    with st.spinner("Loading league context..."):
+        try:
+            league_data = fetch_sleeper_league_data(league_id_input)
+            st.sidebar.success("League data loaded successfully!")
+        except Exception as e:
+            st.sidebar.error("Could not load league. Check ID.")
 
-# Initialize session state for active manager
-if "active_user_id" not in st.session_state:
-    st.session_state.active_user_id = None
-if "active_user_name" not in st.session_state:
-    st.session_state.active_user_name = None
+# ==========================================
+# 3. CHAT INTERFACE & STATE MANAGEMENT
+# ==========================================
+st.title("🏀 Fantasy Basketball AI Hub")
 
-league_users = fetch_league_users()
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-# Render Landing Header
-st.markdown("<br><br>", unsafe_allow_html=True)
-st.markdown("<h1 style='text-align: center;'>🏀 Cas Boys Fantasy AI Coach</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #cbd5e1; font-size: 18px;'>Select your manager profile below to open your locker room</p>", unsafe_allow_html=True)
-st.markdown("<br>", unsafe_allow_html=True)
+# Display existing chat messages
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    if league_users:
-        selected_name = st.selectbox("Choose Your Manager Profile:", list(league_users.keys()))
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🚀 Enter Locker Room", use_container_width=True):
-            st.session_state.active_user_name = selected_name
-            st.session_state.active_user_id = league_users[selected_name]
-            st.session_state.messages = [
-                {"role": "assistant", "content": f"Hey {selected_name}! I'm tracking your team. Ask me if you should lock in your lineup!"}
-            ]
+# User chat input
+if prompt := st.chat_input("Ask about your roster, match projections, or waiver wire..."):
+    # Append user message
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # Generate assistant response
+    with st.chat_message("assistant"):
+        # Build system context using fetched Sleeper data if available
+        system_context = "You are an expert fantasy basketball assistant."
+        if league_data:
+            system_context += f" Current league info: {league_data['league'].get('name', 'League')}."
+
+        # ==========================================
+        # 4. CHAT HISTORY TRIMMING (Speed Boost)
+        # ==========================================
+        # Keep only the last 6 messages so prompt payload doesn't bloat and slow down
+        MAX_HISTORY = 6
+        recent_history = st.session_state.messages[-MAX_HISTORY:]
+        
+        formatted_contents = [{"role": m["role"], "parts": [m["content"]]} for m in recent_history]
+
+        try:
+            # ==========================================
+            # 5. STREAMING RESPONSE (Speed Boost)
+            # ==========================================
+            response_stream = client.models.generate_content_stream(
+                model="gemini-2.5-flash", # Fast model choice for low latency
+                contents=formatted_contents,
+                config={
+                    "system_instruction": system_context
+                }
+            )
+
+            # Stream response directly to UI
+            ai_response = st.write_stream(chunk.text for chunk in response_stream)
             
-            # Target the exact filename pages/AI_Coach.py
-            try:
-                st.switch_page("pages/AI_Coach.py")
-            except Exception:
-                st.success(f"Logged in as **{selected_name}**! Click **AI Coach** in the left sidebar menu to open your dashboard.")
-    else:
-        st.error("Could not load league users from Sleeper API.")
+            # Save assistant response to state
+            st.session_state.messages.append({"role": "model", "content": ai_response})
 
-if st.session_state.active_user_id:
-    st.sidebar.info(f"👤 Manager: **{st.session_state.active_user_name}**")
+        except Exception as e:
+            st.setError(f"An error occurred: {e}")
