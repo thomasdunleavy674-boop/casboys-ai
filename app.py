@@ -146,7 +146,7 @@ if prompt := st.chat_input("Ask about your roster, matchups, trades, or waiver w
         MAX_HISTORY = 6
         recent_history = st.session_state.messages[-MAX_HISTORY:]
         
-        # Format properly using types.Content (Fixes Pydantic Error)
+        # Format properly using types.Content
         formatted_contents = []
         for m in recent_history:
             formatted_contents.append(
@@ -158,10 +158,10 @@ if prompt := st.chat_input("Ask about your roster, matchups, trades, or waiver w
 
         try:
             # ==========================================
-            # 5. STREAMING RESPONSE (Speed Boost)
+            # 5. STREAMING RESPONSE (Updated to 3.8 Flash)
             # ==========================================
             response_stream = client.models.generate_content_stream(
-                model="gemini-2.5-flash",
+                model="gemini-3.8-flash",
                 contents=formatted_contents,
                 config=types.GenerateContentConfig(
                     system_instruction=system_context
