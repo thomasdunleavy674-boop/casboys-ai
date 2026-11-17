@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 from google import genai
+from google.genai import types
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -9,22 +10,21 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialize Gemini Client (ensure GEMINI_API_KEY is in st.secrets)
+# Initialize Gemini Client (make sure GEMINI_API_KEY is saved in st.secrets)
 client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
 # ==========================================
-# 1. CACHED SLEEPER API FUNCTIONS
+# 1. CACHED SLEEPER API FUNCTIONS (Speed Boost)
 # ==========================================
 @st.cache_data(ttl=600)
 def fetch_sleeper_league_data(league_id):
-    """Fetches league details, rosters, and users from Sleeper."""
+    """Fetches league details, rosters, and users from Sleeper and caches them."""
     base_url = f"https://api.sleeper.app/v1/league/{league_id}"
     
     league_resp = requests.get(base_url).json()
     rosters_resp = requests.get(f"{base_url}/rosters").json()
     users_resp = requests.get(f"{base_url}/users").json()
     
-    # Check if league actually exists / returned valid lists
     if not isinstance(users_resp, list) or len(users_resp) == 0:
         return None
 
@@ -43,7 +43,7 @@ def get_user_map(users):
     return user_map
 
 # ==========================================
-# 2. SIDEBAR CONFIGURATION & STATE
+# 2. SIDEBAR CONFIGURATION
 # ==========================================
 st.sidebar.title("⚙️ League Settings")
 
@@ -73,7 +73,6 @@ if league_id_input:
                 key="selected_manager_name"
             )
             
-            # Save selected roster to session_state
             for u in users:
                 if user_map.get(u.get("user_id")) == selected_manager_name:
                     target_user_id = u.get("user_id")
@@ -82,7 +81,7 @@ if league_id_input:
                     )
                     break
         else:
-            st.sidebar.error("No managers found for this League ID. Please double check the ID.")
+            st.sidebar.error("No managers found. Check your League ID.")
             st.session_state["league_data"] = None
 
 # --- AI COACH SELECTION ---
@@ -106,7 +105,7 @@ else:
     )
 
 # ==========================================
-# 3. MAIN DISPLAY & CHAT INTERFACE
+# 3. MAIN CHAT INTERFACE
 # ==========================================
 st.title("🏀 Fantasy Basketball AI Hub")
 
@@ -116,13 +115,14 @@ st.subheader(f"Managing: **{curr_manager}** | Active Mode: **{coach_persona}**")
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Display existing messages
+# Display chat history
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Chat Input
+# User Chat Input
 if prompt := st.chat_input("Ask about your roster, matchups, trades, or waiver wire..."):
+    # Append user message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -140,19 +140,38 @@ if prompt := st.chat_input("Ask about your roster, matchups, trades, or waiver w
         if selected_roster:
             system_context += f"\nUser Roster Player IDs: {selected_roster.get('players', [])}."
 
-        # Keep history payload concise
+        # ==========================================
+        # 4. CHAT HISTORY TRIMMING (Speed Boost)
+        # ==========================================
         MAX_HISTORY = 6
         recent_history = st.session_state.messages[-MAX_HISTORY:]
-        formatted_contents = [{"role": m["role"], "parts": [m["content"]]} for m in recent_history]
+        
+        # Format properly using types.Content (Fixes Pydantic Error)
+        formatted_contents = []
+        for m in recent_history:
+            formatted_contents.append(
+                types.Content(
+                    role=m["role"],
+                    parts=[types.Part.from_text(text=m["content"])]
+                )
+            )
 
         try:
+            # ==========================================
+            # 5. STREAMING RESPONSE (Speed Boost)
+            # ==========================================
             response_stream = client.models.generate_content_stream(
                 model="gemini-2.5-flash",
                 contents=formatted_contents,
-                config={"system_instruction": system_context}
+                config=types.GenerateContentConfig(
+                    system_instruction=system_context
+                )
             )
 
+            # Stream directly to the UI
             ai_response = st.write_stream(chunk.text for chunk in response_stream)
+            
+            # Save model response
             st.session_state.messages.append({"role": "model", "content": ai_response})
 
         except Exception as e:
